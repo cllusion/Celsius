@@ -11,8 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up JDK
-        uses: actions/setup-java@v4
+      build:
+        runs-on: ubuntu-24.04
         with:
           distribution: 'temurin'
           java-version: '17'
@@ -29,32 +29,29 @@ jobs:
         run: |
           set -eux
           SDK_ROOT="$HOME/android-sdk"
-          mkdir -p "$SDK_ROOT"
-          export ANDROID_SDK_ROOT="$SDK_ROOT"
-          # Download commandline tools (stable known URL may change; this one is commonly available)
-          CLI_ZIP="commandlinetools-linux_latest.zip"
-          curl -fsSL "https://dl.google.com/android/repository/commandlinetools-linux_latest.zip" -o /tmp/$CLI_ZIP
-          mkdir -p "$SDK_ROOT/cmdline-tools/latest"
-          unzip -q /tmp/$CLI_ZIP -d "$SDK_ROOT/cmdline-tools/latest"
-          export PATH="$SDK_ROOT/cmdline-tools/latest/cmdline-tools/bin:$PATH"
-          yes | sdkmanager --licenses || true
-          sdkmanager --sdk_root="$SDK_ROOT" "platform-tools" "platforms;android-33" "build-tools;33.0.2" "cmdline-tools;latest"
-          ls -la "$SDK_ROOT"
-
-      - name: Install Gradle and build (generate wrapper if missing)
-        run: |
-          set -eux
-          sudo apt-get update
-          sudo apt-get install -y gradle unzip
-          gradle --version
-          cd android
-          # If no gradlew exists, generate a wrapper using installed gradle
-          if [ ! -f ./gradlew ]; then
-            gradle wrapper
-          fi
-          ./gradlew assembleDebug --no-daemon --console=plain
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
+          - name: Set up Android SDK
+            uses: r0adkll/setup-android@v2
+            with:
+              api-level: 33
+              build-tools: 33.0.2
+              ndk: ''
+              components: |
+                platform-tools
+                platforms;android-33
+                build-tools;33.0.2
+      
+          - name: Install Gradle and build (generate wrapper if missing)
+            working-directory: android
+            run: |
+              set -eux
+              sudo apt-get update
+              sudo apt-get install -y gradle unzip
+              gradle --version
+              # If no gradlew exists, generate a wrapper using installed gradle
+              if [ ! -f ./gradlew ]; then
+                gradle wrapper --gradle-version 8.4.1
+              fi
+              chmod +x ./gradlew
+              ./gradlew assembleDebug --no-daemon --console=plain
           name: android-apk
           path: android/app/build/outputs/apk/debug/*.apk
