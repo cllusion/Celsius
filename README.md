@@ -1,5 +1,8 @@
 # Celsius — Self-learning local AI (FastAPI online learner)
 
+![Python Tests](https://github.com/cllusion/Celsius/actions/workflows/python-tests.yml/badge.svg)
+![Docker Build](https://github.com/cllusion/Celsius/actions/workflows/docker-build.yml/badge.svg)
+
 Quick start:
 
 1. Run the PowerShell setup (from this folder) to create a venv and install deps:

@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, Header
 from pydantic import BaseModel, Field
-from river import linear_model, preprocessing
+from river import linear_model, preprocessing, metrics
 import threading
 import uvicorn
 import os
@@ -37,6 +37,8 @@ app = FastAPI(title="Celsius")
 
 # Simple online model using River
 model = preprocessing.StandardScaler() | linear_model.LinearRegression()
+train_count = 0
+metric_mse = metrics.MSE()
 model_lock = threading.Lock()
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "celsius_model.pkl")
 
@@ -77,6 +79,10 @@ def train(req: TrainRequest, _auth=Depends(require_auth)):
     try:
         with model_lock:
             model.learn_one(req.features, req.target)
+            # update metrics
+            global train_count
+            train_count += 1
+            metric_mse.update(req.target, model.predict_one(req.features) or 0.0)
         return {"status": "trained"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -99,6 +105,11 @@ def save(_auth=Depends(require_auth)):
         return {"status": "saved"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/metrics")
+def metrics_endpoint():
+    return {"train_count": train_count, "mse": metric_mse.get()}
 
 
 if __name__ == "__main__":
