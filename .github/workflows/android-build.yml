@@ -25,15 +25,18 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: |
             ${{ runner.os }}-gradle-
-      - name: Build APK
-        uses: gradle/gradle-build-action@v2
-        with:
-          arguments: assembleDebug
-          gradle-version: '8.4.1'        # action will download this Gradle if wrapper is absent
-          project-root: 'android'
-          cache-enabled: true
-        # also ensure the action runs in the android subdirectory
-        working-directory: android
+      - name: Build APK (download Gradle and run)
+        run: |
+          set -eux
+          GRADLE_VERSION=8.4.1
+          GRADLE_ZIP=gradle-${GRADLE_VERSION}-bin.zip
+          curl -fsSL "https://services.gradle.org/distributions/${GRADLE_ZIP}" -o "/tmp/${GRADLE_ZIP}"
+          sudo mkdir -p /opt/gradle
+          sudo unzip -q -o "/tmp/${GRADLE_ZIP}" -d /opt/gradle
+          export PATH="/opt/gradle/gradle-${GRADLE_VERSION}/bin:$PATH"
+          gradle --version
+          cd android
+          gradle assembleDebug --no-daemon --console=plain
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
