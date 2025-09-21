@@ -29,29 +29,62 @@ jobs:
         run: |
           set -eux
           SDK_ROOT="$HOME/android-sdk"
-          - name: Set up Android SDK
-            uses: r0adkll/setup-android@v2
-            with:
-              api-level: 33
-              build-tools: 33.0.2
-              ndk: ''
-              components: |
-                platform-tools
-                platforms;android-33
-                build-tools;33.0.2
-      
-          - name: Install Gradle and build (generate wrapper if missing)
-            working-directory: android
-            run: |
-              set -eux
-              sudo apt-get update
-              sudo apt-get install -y gradle unzip
-              gradle --version
-              # If no gradlew exists, generate a wrapper using installed gradle
-              if [ ! -f ./gradlew ]; then
-                gradle wrapper --gradle-version 8.4.1
-              fi
-              chmod +x ./gradlew
-              ./gradlew assembleDebug --no-daemon --console=plain
-          name: android-apk
-          path: android/app/build/outputs/apk/debug/*.apk
+          name: Android CI - Build APK
+
+          on:
+            push:
+              branches: [ main ]
+            pull_request:
+              branches: [ main ]
+
+          jobs:
+            build:
+              runs-on: ubuntu-24.04
+              steps:
+                - uses: actions/checkout@v4
+
+                - name: Set up JDK
+                  uses: actions/setup-java@v4
+                  with:
+                    distribution: 'temurin'
+                    java-version: '17'
+
+                - name: Cache Gradle
+                  uses: actions/cache@v4
+                  with:
+                    path: |
+                      ~/.gradle/caches
+                      ~/.gradle/wrapper
+                    key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+                    restore-keys: |
+                      ${{ runner.os }}-gradle-
+
+                - name: Set up Android SDK
+                  uses: r0adkll/setup-android@v2
+                  with:
+                    api-level: 33
+                    build-tools: 33.0.2
+                    components: |
+                      platform-tools
+                      platforms;android-33
+                      build-tools;33.0.2
+
+                - name: Install Gradle and build (generate wrapper if missing)
+                  working-directory: android
+                  run: |
+                    set -eux
+                    sudo apt-get update
+                    sudo apt-get install -y gradle unzip
+                    gradle --version
+                    # If no gradlew exists, generate a wrapper using installed gradle
+                    if [ ! -f ./gradlew ]; then
+                      gradle wrapper --gradle-version 8.4.1
+                    fi
+                    chmod +x ./gradlew
+                    ./gradlew assembleDebug --no-daemon --console=plain
+
+                - name: Upload APK artifact
+                  uses: actions/upload-artifact@v4
+                  with:
+                    name: android-apk
+                    path: android/app/build/outputs/apk/debug/*.apk
