@@ -25,15 +25,11 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: |
             ${{ runner.os }}-gradle-
-      - name: Build APK (download Gradle and run)
+      - name: Build APK (install gradle via apt and run)
         run: |
           set -eux
-          GRADLE_VERSION=8.4.1
-          GRADLE_ZIP=gradle-${GRADLE_VERSION}-bin.zip
-          curl -fsSL "https://services.gradle.org/distributions/${GRADLE_ZIP}" -o "/tmp/${GRADLE_ZIP}"
-          sudo mkdir -p /opt/gradle
-          sudo unzip -q -o "/tmp/${GRADLE_ZIP}" -d /opt/gradle
-          export PATH="/opt/gradle/gradle-${GRADLE_VERSION}/bin:$PATH"
+          sudo apt-get update
+          sudo apt-get install -y gradle unzip
           gradle --version
           cd android
           gradle assembleDebug --no-daemon --console=plain
