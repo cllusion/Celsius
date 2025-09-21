@@ -18,13 +18,23 @@
   </div>
   <pre id="reply"></pre>
   <script>
-    const token = 'devtoken';
+    let token = '';
+    // Use native-injected token if available, otherwise prompt
+    const getToken = () => {
+      try {
+        if (window.__AUTH_TOKEN && window.__AUTH_TOKEN.length > 0) {
+          return window.__AUTH_TOKEN;
+        }
+      } catch (e) {}
+      return prompt('Enter AUTH token (set on server via AUTH_TOKEN):', 'devtoken') || '';
+    };
+    token = getToken();
     document.getElementById('send').onclick = async () => {
       const session = document.getElementById('session').value;
       const message = document.getElementById('message').value;
       const res = await fetch('/assistant', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+  headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
         body: JSON.stringify({ session_id: session, message })
       });
       const j = await res.json();
