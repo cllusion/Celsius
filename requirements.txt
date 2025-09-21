@@ -1,0 +1,10 @@
+fastapi==0.95.2
+# Allow pip to choose a uvicorn build compatible with this Python version
+uvicorn[standard]
+# Use a newer River release that supports modern Python versions
+river==0.22.0
+numpy
+pandas
+scikit-learn
+python-multipart
+requests
