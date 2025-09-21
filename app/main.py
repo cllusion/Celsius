@@ -1,4 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, Header, Response
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+import re
 from pydantic import BaseModel, Field
 from river import linear_model, preprocessing, metrics
 import threading
@@ -46,6 +49,28 @@ prom_train_count = Gauge('celsius_train_count', 'Number of training examples')
 prom_mse = Gauge('celsius_mse', 'Mean squared error')
 model_lock = threading.Lock()
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "celsius_model.pkl")
+SESSIONS_PATH = os.path.join(os.path.dirname(__file__), "..", "assistant_sessions.pkl")
+
+# simple in-memory session store with persistence
+assistant_sessions = {}
+
+
+def load_sessions():
+    global assistant_sessions
+    try:
+        if os.path.exists(SESSIONS_PATH):
+            with open(SESSIONS_PATH, "rb") as f:
+                assistant_sessions = pickle.load(f)
+    except Exception:
+        assistant_sessions = {}
+
+
+def save_sessions():
+    try:
+        with open(SESSIONS_PATH, "wb") as f:
+            pickle.dump(assistant_sessions, f)
+    except Exception:
+        pass
 
 
 @app.on_event("startup")
@@ -62,6 +87,8 @@ def load_model():
     except Exception:
         # ignore load errors for now
         pass
+    # load assistant sessions
+    load_sessions()
 
 
 @app.on_event("shutdown")
@@ -77,6 +104,8 @@ def save_model():
         shutil.move(tmp, path)
     except Exception:
         pass
+    # persist sessions
+    save_sessions()
 
 
 @app.get("/status")
@@ -130,6 +159,74 @@ def metrics_endpoint():
 def prometheus_metrics():
     data = generate_latest()
     return Response(content=data, media_type=CONTENT_TYPE_LATEST)
+
+
+# Mount UI static files (simple assistant web UI)
+ui_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'ui'))
+if os.path.isdir(ui_dir):
+    app.mount("/ui", StaticFiles(directory=ui_dir), name="ui")
+
+
+class AssistantRequest(BaseModel):
+    session_id: Optional[str] = None
+    message: str
+
+
+@app.post("/assistant")
+def assistant(req: AssistantRequest, _auth=Depends(require_auth)):
+    """Simple rule-based assistant that can call model train/predict/status commands.
+
+    Commands:
+    - train x=1 y=2 target=3
+    - predict x=1 y=2
+    - status
+    - help
+    """
+    sid = req.session_id or "default"
+    sess = assistant_sessions.setdefault(sid, {"history": []})
+    msg = req.message.strip()
+    sess['history'].append({"role": "user", "text": msg})
+
+    # simple parsing for train/predict
+    def parse_features(text: str):
+        items = re.findall(r"([a-zA-Z_][a-zA-Z0-9_]*)=([-+]?[0-9]*\.?[0-9]+)", text)
+        return {k: float(v) for k, v, *_ in items}
+
+    reply = "I didn't understand. Try 'help' for commands."
+    low = msg.lower()
+    if low.startswith("help"):
+        reply = "Commands: train x=1 y=2 target=3 | predict x=1 y=2 | status | metrics"
+    elif low.startswith("status"):
+        reply = f"status: train_count={train_count}, mse={metric_mse.get()}"
+    elif low.startswith("metrics"):
+        reply = f"metrics: train_count={train_count}, mse={metric_mse.get()}"
+    elif low.startswith("train"):
+        feats = parse_features(msg)
+        if 'target' not in feats:
+            reply = "train requires a 'target' value. Example: train x=1 y=2 target=3"
+        else:
+            target = feats.pop('target')
+            with model_lock:
+                model.learn_one(feats, target)
+                global train_count
+                train_count += 1
+                pred = model.predict_one(feats)
+                metric_mse.update(target, pred or 0.0)
+                prom_train_count.set(train_count)
+                prom_mse.set(metric_mse.get())
+            reply = f"Trained on features={feats} target={target}."
+    elif low.startswith("predict"):
+        feats = parse_features(msg)
+        if not feats:
+            reply = "predict requires features. Example: predict x=1 y=2"
+        else:
+            with model_lock:
+                p = model.predict_one(feats)
+            reply = f"prediction: {p}"
+
+    sess['history'].append({"role": "assistant", "text": reply})
+    save_sessions()
+    return {"session_id": sid, "reply": reply}
 
 
 if __name__ == "__main__":
