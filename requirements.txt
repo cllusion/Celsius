@@ -8,3 +8,4 @@ pandas
 scikit-learn
 python-multipart
 requests
+prometheus-client

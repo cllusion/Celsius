@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, Response
 from pydantic import BaseModel, Field
 from river import linear_model, preprocessing, metrics
 import threading
@@ -6,6 +6,9 @@ import uvicorn
 import os
 import pickle
 from typing import Dict, Optional
+from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
+import tempfile
+import shutil
 
 
 class TrainRequest(BaseModel):
@@ -39,6 +42,8 @@ app = FastAPI(title="Celsius")
 model = preprocessing.StandardScaler() | linear_model.LinearRegression()
 train_count = 0
 metric_mse = metrics.MSE()
+prom_train_count = Gauge('celsius_train_count', 'Number of training examples')
+prom_mse = Gauge('celsius_mse', 'Mean squared error')
 model_lock = threading.Lock()
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "celsius_model.pkl")
 
@@ -63,8 +68,13 @@ def load_model():
 def save_model():
     try:
         path = os.path.abspath(MODEL_PATH)
-        with open(path, "wb") as f:
+        # atomic save: write to temp then move
+        dirn = os.path.dirname(path)
+        fd, tmp = tempfile.mkstemp(dir=dirn)
+        os.close(fd)
+        with open(tmp, "wb") as f:
             pickle.dump(model, f)
+        shutil.move(tmp, path)
     except Exception:
         pass
 
@@ -82,7 +92,11 @@ def train(req: TrainRequest, _auth=Depends(require_auth)):
             # update metrics
             global train_count
             train_count += 1
-            metric_mse.update(req.target, model.predict_one(req.features) or 0.0)
+            pred = model.predict_one(req.features)
+            metric_mse.update(req.target, pred or 0.0)
+            # update prometheus gauges
+            prom_train_count.set(train_count)
+            prom_mse.set(metric_mse.get())
         return {"status": "trained"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -110,6 +124,12 @@ def save(_auth=Depends(require_auth)):
 @app.get("/metrics")
 def metrics_endpoint():
     return {"train_count": train_count, "mse": metric_mse.get()}
+
+
+@app.get("/metrics/prometheus")
+def prometheus_metrics():
+    data = generate_latest()
+    return Response(content=data, media_type=CONTENT_TYPE_LATEST)
 
 
 if __name__ == "__main__":
